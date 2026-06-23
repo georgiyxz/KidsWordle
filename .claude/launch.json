@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "movement-harness",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8133", "--directory", "tests/movement-harness"],
+      "port": 8133
+    },
+    {
+      "name": "word-garden",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    }
+  ]
+}

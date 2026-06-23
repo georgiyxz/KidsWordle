@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>Word Garden</title>
+    <style>
+      /* Local Poppins only — no remote font calls. "bold" weight is the display face. */
+      @font-face {
+        font-family: 'Poppins';
+        src: url('fonts/Poppins.woff') format('woff');
+        font-weight: 700;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'Poppins';
+        src: url('fonts/Poppins-Light.woff') format('woff');
+        font-weight: 300;
+        font-style: normal;
+        font-display: block;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #2a1f66; /* Funbrain purple, avoids white flash before paint */
+      }
+      #game {
+        width: 100vw;
+        height: 100vh;
+      }
+      #game canvas {
+        touch-action: none; /* suppress iOS scroll/zoom on swipe */
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

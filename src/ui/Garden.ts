@@ -1,20 +1,23 @@
 import Phaser from 'phaser';
 import { Palette, LOGICAL_W, LOGICAL_H } from '../theme';
 
-// Draws the cheerful sky + rolling grass + sun + flowers backdrop shared by the
-// menu and the game. Pure decoration: one Graphics object, no interaction.
-export function drawGarden(scene: Phaser.Scene): void {
+// Draws the cheerful sky + rolling grass backdrop shared by the menu and the
+// game. Pure decoration: one Graphics object, no interaction. The sun is opt-in
+// (the menu keeps it; the game scene leaves it off for a cleaner top-left).
+export function drawGarden(scene: Phaser.Scene, withSun = true): void {
   const g = scene.add.graphics();
 
   // Sky: soft blue fading to pale green near the horizon.
   g.fillGradientStyle(Palette.skyTop, Palette.skyTop, Palette.skyHorizon, Palette.skyHorizon, 1);
   g.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
-  // Sun with a soft halo, tucked in the top-left.
-  g.fillStyle(Palette.sun, 0.25);
-  g.fillCircle(112, 96, 86);
-  g.fillStyle(Palette.sun, 1);
-  g.fillCircle(112, 96, 60);
+  if (withSun) {
+    // Sun with a soft halo, tucked in the top-left.
+    g.fillStyle(Palette.sun, 0.25);
+    g.fillCircle(112, 96, 86);
+    g.fillStyle(Palette.sun, 1);
+    g.fillCircle(112, 96, 60);
+  }
 
   // Rolling hills, then the flat grass band the garden sits on.
   g.fillStyle(Palette.hillDark, 1);
@@ -23,26 +26,93 @@ export function drawGarden(scene: Phaser.Scene): void {
   g.fillCircle(860, 470, 180);
   g.fillStyle(Palette.hill, 1);
   g.fillRect(0, 452, LOGICAL_W, LOGICAL_H - 452);
-
-  // A scatter of little flowers along the grass.
-  const flowers: [number, number, number][] = [
-    [70, 500, Palette.pink],
-    [250, 520, Palette.sun],
-    [430, 498, Palette.tomato],
-    [900, 512, Palette.lilac],
-    [760, 522, Palette.sun],
-  ];
-  flowers.forEach(([x, y, c]) => flower(g, x, y, c));
 }
 
-function flower(g: Phaser.GameObjects.Graphics, x: number, y: number, color: number): void {
-  g.lineStyle(4, Palette.grassDark, 1);
-  g.lineBetween(x, y, x, y + 22);
-  g.fillStyle(color, 1);
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    g.fillCircle(x + Math.cos(a) * 8, y + Math.sin(a) * 8, 6);
-  }
-  g.fillStyle(Palette.sun, 1);
-  g.fillCircle(x, y, 5);
+// Drifting clouds shared by the menu and the game. Spawns a few right away then
+// keeps gently sending more across; auto-cleans its timer on scene shutdown.
+export function addClouds(scene: Phaser.Scene): Phaser.GameObjects.Container {
+  const layer = scene.add.container(0, 0);
+
+  const spawn = (startX?: number): void => {
+    const w = Phaser.Math.Between(150, 230);
+    const h = w * 0.5625;
+    const y = Phaser.Math.Between(70, 150);
+    const x = startX ?? LOGICAL_W + w / 2 + 40;
+    const speed = Phaser.Math.Between(16, 28);
+    const cloud = scene.add
+      .image(x, y, 'cloudSprite')
+      .setOrigin(0.5)
+      .setAlpha(Phaser.Math.FloatBetween(0.58, 0.82))
+      .setDisplaySize(w, h);
+    layer.add(cloud);
+    scene.tweens.add({
+      targets: cloud,
+      x: -w / 2 - 80,
+      duration: ((x + w / 2 + 80) / speed) * 1000,
+      ease: 'Linear',
+      onComplete: () => cloud.destroy(),
+    });
+  };
+
+  [260, 640, 980].forEach((x) => spawn(x));
+  let event: Phaser.Time.TimerEvent;
+  const schedule = (): void => {
+    event = scene.time.delayedCall(Phaser.Math.Between(5200, 8600), () => {
+      spawn();
+      schedule();
+    });
+  };
+  schedule();
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => event?.remove(false));
+  return layer;
+}
+
+// Ambient butterflies that flutter across the garden — a little living detail.
+// Lightweight (one drawn sprite at a time) and skipped when reduced motion is on.
+export function addButterflies(scene: Phaser.Scene): void {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const colors = [Palette.pink, Palette.sun, Palette.lilac, Palette.tomato];
+
+  const release = (): void => {
+    const fromLeft = Math.random() < 0.5;
+    const y = Phaser.Math.Between(150, 320);
+    const startX = fromLeft ? -30 : LOGICAL_W + 30;
+    const endX = fromLeft ? LOGICAL_W + 30 : -30;
+    const g = scene.add.graphics();
+    drawButterfly(g, Phaser.Math.RND.pick(colors));
+    const bug = scene.add.container(startX, y, [g]).setDepth(6).setScale(0.9);
+    if (!fromLeft) bug.setScale(-0.9, 0.9);
+
+    scene.tweens.add({ targets: g, scaleX: 0.5, duration: 140, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    scene.tweens.add({ targets: bug, y: y - Phaser.Math.Between(20, 44), duration: Phaser.Math.Between(700, 1100), yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    scene.tweens.add({
+      targets: bug,
+      x: endX,
+      duration: Phaser.Math.Between(7000, 9500),
+      ease: 'Sine.inOut',
+      onComplete: () => bug.destroy(),
+    });
+  };
+
+  const schedule = (delay: number): void => {
+    const event = scene.time.delayedCall(delay, () => {
+      release();
+      schedule(Phaser.Math.Between(7000, 13000));
+    });
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => event.remove(false));
+  };
+  schedule(Phaser.Math.Between(1500, 3500));
+}
+
+function drawButterfly(g: Phaser.GameObjects.Graphics, color: number): void {
+  g.fillStyle(0x3a2e26, 1);
+  g.fillRoundedRect(-2, -8, 4, 16, 2);
+  g.fillStyle(color, 0.95);
+  g.fillCircle(-8, -4, 7);
+  g.fillCircle(-9, 6, 6);
+  g.fillCircle(8, -4, 7);
+  g.fillCircle(9, 6, 6);
+  g.fillStyle(0xffffff, 0.5);
+  g.fillCircle(-8, -4, 3);
+  g.fillCircle(8, -4, 3);
 }

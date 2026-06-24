@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { RENDER_RESOLUTION } from '../theme';
 
 export type ShadowedText = {
   container: Phaser.GameObjects.Container;
@@ -30,10 +31,10 @@ export function addShadowText(
   opts: ShadowTextOptions = {},
 ): ShadowedText {
   const offsetX = opts.offsetX ?? 2;
-  const offsetY = opts.offsetY ?? 3;
+  const offsetY = opts.offsetY ?? 2;
   const shadowColor = opts.shadowColor ?? '#000000';
   const shadowAlpha = opts.shadowAlpha ?? 0.82;
-  const resolution = opts.resolution ?? 2;
+  const resolution = opts.resolution ?? RENDER_RESOLUTION;
   const origin = opts.origin ?? 0.5;
   const [originX, originY] = Array.isArray(origin) ? origin : [origin, origin];
 

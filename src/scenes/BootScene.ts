@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { FONT, Hex, LOGICAL_W, LOGICAL_H } from '../theme';
 import { addShadowText } from '../ui/ShadowText';
-import cloudSpriteUrl from '../../assets/Cloud_Sprite.png?url';
 
 // Loads every asset once, makes sure the local Poppins font is actually
 // rendered, then hands off to the Main Menu. Nothing here is gameplay.
@@ -19,10 +18,14 @@ export class BootScene extends Phaser.Scene {
 
     // Dino cutouts (optimized in scripts/optimize-assets.mjs).
     this.load.image('dinoIdle', 'art/dinos/dino-idle.webp');
+    this.load.image('dinoHint', 'art/dinos/dino-hint.webp');
+    this.load.image('dinoExcited', 'art/dinos/dino-excited.webp');
+    this.load.image('dinoEncourage', 'art/dinos/dino-encourage.webp');
+    this.load.image('dinoProud', 'art/dinos/dino-proud.webp');
     this.load.image('dinoCheer', 'art/dinos/dino-cheer.webp');
     this.load.image('dinoFace', 'art/dinos/dino-face.webp');
     this.load.image('dinoSteg', 'art/dinos/dino-steg.webp');
-    this.load.image('cloudSprite', cloudSpriteUrl);
+    this.load.image('cloudSprite', 'art/cloud.webp');
 
     // Funbrain CTA buttons (default + active press states).
     const buttons: [string, string][] = [

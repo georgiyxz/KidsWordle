@@ -15,6 +15,8 @@ const game = new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   render: { antialias: true, powerPreference: 'low-power' },
+  banner: false, // no console banner spam
+  audio: { noAudio: true }, // the game has no audio — skip the WebAudio context
   scene: [BootScene, MainMenuScene, GameScene],
 });
 

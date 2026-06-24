@@ -19,7 +19,10 @@ export function makeImageButton(
   const aspect = img.width / img.height; // lock aspect from the default frame
   const setH = (h: number) => img.setDisplaySize(h * aspect, h);
   setH(height);
-  img.setInteractive({ useHandCursor: true });
+  // Pixel-perfect hit test so only the visible pill is clickable (the rounded
+  // corners and any transparent padding are not), with no dead zones inside it.
+  img.setInteractive(scene.input.makePixelPerfect());
+  if (img.input) img.input.cursor = 'pointer';
 
   let held = false;
   img.on('pointerover', () => img.setTexture(activeKey));

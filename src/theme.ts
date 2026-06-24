@@ -43,20 +43,29 @@ export const Palette = {
   white: 0xffffff,
 };
 
-// CSS hex strings for Phaser Text color/stroke options.
+// CSS hex strings for Phaser Text color/stroke options. Bright, vibrant UI
+// colors — avoid muddy brown for important text; use these instead.
 export const Hex = {
   sun: '#FCBE55',
+  gold: '#FFB52C',
   ink: '#2A2928',
   white: '#FFFFFF',
   cream: '#EEEAE5',
   grassDark: '#3F6B21',
   tomato: '#FF5A58',
   ctaPrimary: '#2D8C8B',
+  teal: '#1E7E7C',
+  orange: '#F08A3E',
+  pink: '#F267A6',
   soil: '#5E4A3A',
 };
 
 export const FONT = 'Poppins';
 export const LOGICAL_W = 960;
 export const LOGICAL_H = 540;
+
+// Supersampled text resolution for crisp glyphs. Retina screens get a little
+// more; standard screens stay at 2 to keep texture memory in check.
+export const RENDER_RESOLUTION = (typeof window !== 'undefined' && (window.devicePixelRatio || 1) >= 2) ? 3 : 2;
 
 export type Mode = 'easy' | 'hard';

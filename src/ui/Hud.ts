@@ -21,6 +21,8 @@ export class Hud {
   private doneBtn: Phaser.GameObjects.Image;
   private fsBtn: Phaser.GameObjects.Image;
   private reduceMotion: boolean;
+  private doneY: number;
+  private fsY: number;
 
   constructor(scene: Phaser.Scene, opts: { maxGuesses: number; onDone: () => void }) {
     this.scene = scene;
@@ -47,6 +49,8 @@ export class Hud {
     // Done + Full Screen live together in the bottom-right corner.
     this.fsBtn = makeImageButton(scene, LOGICAL_W - 80, LOGICAL_H - 30, 'btnFs', 'btnFsActive', () => this.goFullscreen(), 34);
     this.doneBtn = makeImageButton(scene, LOGICAL_W - 80, LOGICAL_H - 77, 'btnDone', 'btnDoneActive', opts.onDone, 44);
+    this.doneY = this.doneBtn.y;
+    this.fsY = this.fsBtn.y;
   }
 
   // Stage 1 of the intro: pop the tries label, then the seed-balls one-by-one.
@@ -68,6 +72,48 @@ export class Hud {
     if (this.reduceMotion) return;
     this.doneBtn.setAlpha(0);
     this.fsBtn.setAlpha(0);
+  }
+
+  resetForIntro(): void {
+    this.scene.tweens.killTweensOf([this.container, this.doneBtn, this.fsBtn]);
+    this.container.setPosition(0, 0).setScale(1).setAlpha(1).setVisible(true);
+    this.balls.forEach((b) => {
+      this.scene.tweens.killTweensOf(b.container);
+      b.alive = true;
+      b.container.setVisible(true).setPosition(b.container.x, BALL_Y).setScale(1).setAlpha(1);
+    });
+    this.doneBtn.setY(this.doneY).setScale(1).setAlpha(1).setVisible(true).setInteractive(this.scene.input.makePixelPerfect());
+    this.fsBtn.setY(this.fsY).setScale(1).setAlpha(1).setVisible(true).setInteractive(this.scene.input.makePixelPerfect());
+  }
+
+  hideForLoss(delay = 0): number {
+    this.doneBtn.disableInteractive();
+    this.fsBtn.disableInteractive();
+    if (this.reduceMotion) {
+      this.container.setAlpha(0);
+      this.doneBtn.setAlpha(0);
+      this.fsBtn.setAlpha(0);
+      return 80;
+    }
+
+    this.scene.tweens.add({
+      targets: this.container,
+      y: this.container.y - 8,
+      scale: 0.9,
+      alpha: 0,
+      duration: 220,
+      delay,
+      ease: 'Back.in',
+    });
+    this.scene.tweens.add({
+      targets: [this.doneBtn, this.fsBtn],
+      y: '-=8',
+      alpha: 0,
+      duration: 220,
+      delay: delay + 70,
+      ease: 'Quad.in',
+    });
+    return delay + 310;
   }
 
   // Restore all balls and pop them back in (a fresh word in the same run).

@@ -95,6 +95,7 @@ const TOO_SHORT = ['Please enter a 5-letter word.', 'Tiny word! It needs 5 lette
 const NO_HINTS = ['No helper eggs left!', 'The dino is out of clues!', 'No more hints, super speller!'];
 const VOWELS = 'AEIOU';
 const INVALID_WORD = "That word doesn't exist! Try again!";
+const REPEAT_GUESS = 'You already tried that word!';
 const VALID_GUESSES = new Set(
   validWordsRaw
     .split(/\s+/)
@@ -158,6 +159,7 @@ export class GameScene extends Phaser.Scene {
   private over = false;
   private letterStates: Record<string, LetterState> = {};
   private guessedLetters = new Set<string>();
+  private submittedGuesses = new Set<string>();
   private solvedPos = [false, false, false, false, false];
   private usedHints = new Set<string>();
   private flowersGrown = 0;
@@ -184,6 +186,7 @@ export class GameScene extends Phaser.Scene {
   private bestText!: ShadowedText;
   private helpLayer!: Phaser.GameObjects.Container;
   private helpEggs!: Phaser.GameObjects.Graphics;
+  private helpHit!: Phaser.GameObjects.Zone;
   private scoreLayer!: Phaser.GameObjects.Container;
   private legendItems: Partial<Record<Score, Phaser.GameObjects.Container>> = {};
   private emotionTimer?: Phaser.Time.TimerEvent;
@@ -217,6 +220,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.ensureSpark();
+    this.cameras.main.setBounds(0, 0, LOGICAL_W, LOGICAL_H);
 
     drawGarden(this, false);
     addClouds(this);
@@ -338,7 +342,7 @@ export class GameScene extends Phaser.Scene {
     if (this.reduceMotion) return;
     this.cells[row].forEach((cell, c) => {
       this.tweens.killTweensOf(cell.container);
-      cell.container.setScale(1);
+      cell.container.setScale(1).setAngle(0).setRotation(0).setPosition(cell.lx, cell.ly);
       this.tweens.add({
         targets: cell.container,
         scale: { from: 1, to: 1.16 },
@@ -346,7 +350,7 @@ export class GameScene extends Phaser.Scene {
         duration: 120,
         delay: c * 45,
         ease: 'Quad.out',
-        onComplete: () => cell.container.setScale(1),
+        onComplete: () => cell.container.setScale(1).setAngle(0).setRotation(0).setPosition(cell.lx, cell.ly),
       });
     });
   }
@@ -420,6 +424,7 @@ export class GameScene extends Phaser.Scene {
       txt.setY(off);
     };
     redraw();
+    this.helpHit = hit;
     hit.setInteractive({ useHandCursor: true });
     hit.on('pointerover', () => { hover = true; redraw(); });
     hit.on('pointerout', () => { hover = false; pressed = false; redraw(); });
@@ -590,6 +595,14 @@ export class GameScene extends Phaser.Scene {
     let hover = false;
     let fallen = false;
     let state: LetterState = 'unknown';
+    const resetRestTransform = () => {
+      this.tweens.killTweensOf([container, g, txt.container, txt.text, txt.shadow]);
+      container.setPosition(lx, ly).setScale(1).setAngle(0).setRotation(0).setAlpha(1);
+      g.setPosition(0, 0).setScale(1).setAngle(0).setRotation(0).setAlpha(1);
+      txt.container.setPosition(0, pressed ? 2 : 0).setScale(1).setAngle(0).setRotation(0).setAlpha(1);
+      txt.text.setAngle(0).setRotation(0).setScale(1).setAlpha(1);
+      txt.shadow.setAngle(0).setRotation(0).setScale(1);
+    };
     const redraw = () => {
       g.clear();
       const k = keyColor(state, hover);
@@ -622,20 +635,31 @@ export class GameScene extends Phaser.Scene {
       hit,
       baseX: lx,
       baseY: ly,
-      setState: (s) => { state = s; redraw(); },
+      setState: (s) => {
+        state = s;
+        if (fallen && s !== 'absent') {
+          fallen = false;
+          hit.setVisible(true).setInteractive({ useHandCursor: true });
+          container.setVisible(true);
+        }
+        if (!fallen) resetRestTransform();
+        redraw();
+      },
       pulse: () => {
         if (fallen || this.reduceMotion) return;
-        this.tweens.killTweensOf(container);
-        container.setScale(1);
+        resetRestTransform();
         this.tweens.add({
           targets: container,
           scale: { from: 1.12, to: 1 },
+          angle: { from: 0, to: 0 },
           duration: 170,
           ease: 'Back.out',
+          onComplete: resetRestTransform,
         });
       },
       fall: () => {
         if (fallen) return;
+        this.tweens.killTweensOf(container);
         fallen = true;
         hit.disableInteractive().setVisible(false);
         if (this.reduceMotion) { container.setVisible(false); return; }
@@ -654,7 +678,8 @@ export class GameScene extends Phaser.Scene {
         hover = false;
         pressed = false;
         hit.setVisible(true).setPosition(lx, ly).setInteractive({ useHandCursor: true });
-        container.setVisible(true).setAngle(0).setScale(1).setPosition(lx, ly);
+        container.setVisible(true);
+        resetRestTransform();
         redraw();
       },
     };
@@ -674,6 +699,7 @@ export class GameScene extends Phaser.Scene {
     this.over = false;
     this.letterStates = {};
     this.guessedLetters = new Set();
+    this.submittedGuesses = new Set();
     this.solvedPos = [false, false, false, false, false];
     this.usedHints = new Set();
 
@@ -693,6 +719,26 @@ export class GameScene extends Phaser.Scene {
     if (!first) this.popIn(this.boardLayer, 0.9, 0, 240);
     this.renderCurrentRow();
     this.say(first ? 'Plant a 5-letter word and press ENTER!' : 'Fresh word! Keep your garden growing!');
+  }
+
+  private resetGameplayUiForIntro(): void {
+    this.tweens.killTweensOf([
+      this.boardLayer,
+      this.kbLayer,
+      this.dinoLayer,
+      this.chatLayer,
+      this.legendLayer,
+      this.scoreLayer,
+      this.helpLayer,
+    ]);
+    this.boardLayer.setPosition(BOARD_CX, BOARD_CY).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.kbLayer.setPosition(KEYBOARD_CX, KEYBOARD_CY).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.dinoLayer.setPosition(398, 236).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.chatLayer.setPosition(CHAT_X, CHAT_Y).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.legendLayer.setPosition(854, 106).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.scoreLayer.setPosition(LOGICAL_W - 18, 16).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.helpLayer.setPosition(HELP_X, HELP_Y).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.helpHit.setVisible(true).setInteractive({ useHandCursor: true });
   }
 
   private pickSecret(): string {
@@ -742,6 +788,11 @@ export class GameScene extends Phaser.Scene {
       this.say(INVALID_WORD);
       return;
     }
+    if (this.submittedGuesses.has(guess)) {
+      this.say(REPEAT_GUESS);
+      this.setEmotion('dinoHint', 1100);
+      return;
+    }
     this.glanceAtCurrentTile(COLS - 1, 520);
     this.submitGuess();
   }
@@ -779,7 +830,8 @@ export class GameScene extends Phaser.Scene {
   // ---- guessing -----------------------------------------------------------
 
   private submitGuess(): void {
-    const guess = this.current;
+    const guess = this.current.toUpperCase();
+    this.submittedGuesses.add(guess);
     const score = scoreGuess(this.secret, guess);
     this.guessesMade += 1;
     this.busy = true;
@@ -813,9 +865,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.guessesMade >= ROWS) {
       this.reactLose();
-      const wiltMs = this.wiltFlowers();
-      this.focusCameraOnGarden(660, 396, wiltMs);
-      this.time.delayedCall(wiltMs + 120, () => this.showGameOver());
+      this.beginLossSequence();
       return;
     }
 
@@ -890,6 +940,8 @@ export class GameScene extends Phaser.Scene {
 
   private animateReveal(cell: Cell, score: Score): void {
     if (this.reduceMotion) return;
+    this.tweens.killTweensOf(cell.container);
+    cell.container.setAngle(0).setRotation(0);
     if (score === 'correct') {
       cell.container.setScale(0.6);
       this.tweens.add({ targets: cell.container, scale: 1, duration: 320, ease: 'Back.out' });
@@ -902,7 +954,7 @@ export class GameScene extends Phaser.Scene {
         duration: 90,
         yoyo: true,
         repeat: 2,
-        onComplete: () => cell.container.setAngle(0),
+        onComplete: () => cell.container.setAngle(0).setRotation(0),
       });
     } else {
       this.tweens.add({
@@ -1256,16 +1308,27 @@ export class GameScene extends Phaser.Scene {
   private focusCameraOnGarden(x: number, y: number, totalMs: number): void {
     if (this.reduceMotion) return;
     const cam = this.cameras.main;
+    const targetZoom = 1.12;
     const inDur = Math.min(480, Math.max(220, totalMs * 0.4));
     const outDur = Math.min(460, Math.max(220, totalMs * 0.4));
-    const panX = LOGICAL_W / 2 + (x - LOGICAL_W / 2) * 0.5;
-    const panY = LOGICAL_H / 2 + (y - LOGICAL_H / 2) * 0.5;
-    cam.pan(panX, panY, inDur, 'Sine.easeInOut');
-    cam.zoomTo(1.12, inDur, 'Sine.easeInOut');
+    const panX = LOGICAL_W / 2 + (x - LOGICAL_W / 2) * 0.55;
+    const panY = LOGICAL_H / 2 + (y - LOGICAL_H / 2) * 0.55;
+    const focus = this.clampCameraCenter(panX, panY, targetZoom);
+    cam.pan(focus.x, focus.y, inDur, 'Sine.easeInOut');
+    cam.zoomTo(targetZoom, inDur, 'Sine.easeInOut');
     this.time.delayedCall(Math.max(0, totalMs - outDur), () => {
       cam.pan(LOGICAL_W / 2, LOGICAL_H / 2, outDur, 'Sine.easeInOut');
       cam.zoomTo(1, outDur, 'Sine.easeInOut');
     });
+  }
+
+  private clampCameraCenter(x: number, y: number, zoom: number): { x: number; y: number } {
+    const visibleW = LOGICAL_W / zoom;
+    const visibleH = LOGICAL_H / zoom;
+    return {
+      x: Phaser.Math.Clamp(x, visibleW / 2, LOGICAL_W - visibleW / 2),
+      y: Phaser.Math.Clamp(y, visibleH / 2, LOGICAL_H - visibleH / 2),
+    };
   }
 
   private reactWinDino(): void {
@@ -1419,6 +1482,74 @@ export class GameScene extends Phaser.Scene {
     return 1320 + this.grownFlowers.length * 35;
   }
 
+  private beginLossSequence(): void {
+    this.busy = true;
+    this.over = true;
+    if (this.grownFlowers.length === 0) {
+      this.time.delayedCall(420, () => this.showGameOver());
+      return;
+    }
+
+    const hideMs = this.hideGameplayUiForLoss();
+    this.time.delayedCall(hideMs, () => {
+      const focus = this.getFlowerFocusPoint();
+      const wiltMs = this.wiltFlowers();
+      this.focusCameraOnGarden(focus.x, focus.y, wiltMs);
+      this.time.delayedCall(wiltMs + 140, () => this.showGameOver());
+    });
+  }
+
+  private getFlowerFocusPoint(): { x: number; y: number } {
+    if (this.grownFlowers.length === 0) return this.lastFlowerPos;
+    const totals = this.grownFlowers.reduce(
+      (acc, flower) => ({ x: acc.x + flower.container.x, y: acc.y + flower.container.y }),
+      { x: 0, y: 0 },
+    );
+    return {
+      x: totals.x / this.grownFlowers.length,
+      y: totals.y / this.grownFlowers.length,
+    };
+  }
+
+  private hideGameplayUiForLoss(): number {
+    Object.values(this.keyObjs).forEach((key) => key.hit.disableInteractive());
+    this.disableContainerInput(this.helpLayer);
+
+    if (this.reduceMotion) {
+      [this.kbLayer, this.boardLayer, this.legendLayer, this.scoreLayer, this.helpLayer, this.chatLayer].forEach((layer) => {
+        layer.setAlpha(0);
+      });
+      this.hud.hideForLoss();
+      return 120;
+    }
+
+    const layers = [this.kbLayer, this.boardLayer, this.legendLayer, this.scoreLayer, this.helpLayer, this.chatLayer];
+    layers.forEach((layer, i) => this.fadeLayerOut(layer, i * 90));
+    const hudMs = this.hud.hideForLoss(160);
+    return Math.max(hudMs, (layers.length - 1) * 90 + 310);
+  }
+
+  private fadeLayerOut(layer: Phaser.GameObjects.Container, delay: number): void {
+    this.tweens.killTweensOf(layer);
+    this.tweens.add({
+      targets: layer,
+      y: layer.y + 14,
+      scale: 0.86,
+      alpha: 0,
+      duration: 260,
+      delay,
+      ease: 'Back.in',
+    });
+  }
+
+  private disableContainerInput(container: Phaser.GameObjects.Container): void {
+    container.each((child: Phaser.GameObjects.GameObject) => {
+      const maybeInteractive = child as Phaser.GameObjects.GameObject & { disableInteractive?: () => void };
+      maybeInteractive.disableInteractive?.();
+      if (child instanceof Phaser.GameObjects.Container) this.disableContainerInput(child);
+    });
+  }
+
   private settleFlower(flower: Phaser.GameObjects.Container): void {
     if (this.reduceMotion) return;
     this.tweens.add({
@@ -1490,7 +1621,7 @@ export class GameScene extends Phaser.Scene {
     this.shake(260, 0.006);
     this.loseBurst();
 
-    this.add.rectangle(0, 0, LOGICAL_W, LOGICAL_H, 0x000000, 0.45).setOrigin(0).setInteractive().setDepth(50);
+    const scrim = this.add.rectangle(0, 0, LOGICAL_W, LOGICAL_H, 0x000000, 0.45).setOrigin(0).setInteractive().setDepth(50);
 
     const signY = 196;
     const signLayer = this.add.container(LOGICAL_W / 2, -290).setDepth(52);
@@ -1539,7 +1670,74 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    makeImageButton(this, LOGICAL_W / 2, 462, 'btnTryAgain', 'btnTryAgainActive', () => this.scene.restart({ mode: this.mode }), 58).setDepth(52);
+    const tryAgain = makeImageButton(
+      this,
+      LOGICAL_W / 2,
+      462,
+      'btnTryAgain',
+      'btnTryAgainActive',
+      () => this.closeGameOverAndRestart(signLayer, scrim, tryAgain),
+      58,
+    ).setDepth(52);
+  }
+
+  private closeGameOverAndRestart(
+    signLayer: Phaser.GameObjects.Container,
+    scrim: Phaser.GameObjects.Rectangle,
+    tryAgain: Phaser.GameObjects.Image,
+  ): void {
+    tryAgain.disableInteractive();
+    this.busy = true;
+    if (this.reduceMotion) {
+      this.restartRunAfterGameOver(signLayer, scrim, tryAgain);
+      return;
+    }
+
+    this.tweens.add({
+      targets: signLayer,
+      y: -300,
+      scale: 0.9,
+      alpha: 0,
+      duration: 320,
+      ease: 'Back.in',
+      onComplete: () => this.restartRunAfterGameOver(signLayer, scrim, tryAgain),
+    });
+    this.tweens.add({
+      targets: tryAgain,
+      y: tryAgain.y + 18,
+      scale: 0,
+      alpha: 0,
+      duration: 220,
+      ease: 'Back.in',
+    });
+    this.tweens.add({ targets: scrim, alpha: 0, duration: 260 });
+  }
+
+  private restartRunAfterGameOver(
+    signLayer: Phaser.GameObjects.Container,
+    scrim: Phaser.GameObjects.Rectangle,
+    tryAgain: Phaser.GameObjects.Image,
+  ): void {
+    signLayer.destroy();
+    scrim.destroy();
+    tryAgain.destroy();
+    const cam = this.cameras.main;
+    cam.setZoom(1);
+    cam.setScroll(0, 0);
+
+    this.score = 0;
+    this.hintsLeft = HINTS_PER_RUN;
+    this.streak = 0;
+    this.flowersGrown = 0;
+    this.lastFlowerPos = { x: LOGICAL_W / 2, y: 392 };
+    this.grownFlowers = [];
+    this.flowerLayer.removeAll(true);
+    this.setScore(0);
+    this.drawHelpMeter();
+    this.hud.resetForIntro();
+    this.resetGameplayUiForIntro();
+    this.startWord(true);
+    this.playIntro();
   }
 
   // ---- shared helpers -----------------------------------------------------

@@ -3,6 +3,7 @@ import { Palette, Hex, FONT, LOGICAL_W, LOGICAL_H, Mode } from '../theme';
 import { drawGarden, addClouds, addButterflies } from '../ui/Garden';
 import { makeImageButton, makeTextPill, TextPill } from '../ui/Pill';
 import { addShadowText } from '../ui/ShadowText';
+import { startMenuMusic, stopMenuMusic, playButtonShow } from '../audio';
 
 // Eye layout for the height-286 menu hero (the game's height-150 values scaled).
 const MENU_EYE = {
@@ -17,6 +18,7 @@ const MENU_EYE = {
 export class MainMenuScene extends Phaser.Scene {
   private mode: Mode = 'easy';
   private easyPill!: TextPill;
+  private mediumPill!: TextPill;
   private hardPill!: TextPill;
   private heroDino?: Phaser.GameObjects.Image;
   private heroEyes?: Phaser.GameObjects.Graphics;
@@ -37,6 +39,11 @@ export class MainMenuScene extends Phaser.Scene {
     drawGarden(this);
     addClouds(this);
     addButterflies(this);
+    this.addMenuFlowers(reduce);
+
+    // Looped lofi while on the menu; stopped when we leave (no overlap on return).
+    startMenuMusic(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => stopMenuMusic());
 
     const titleX = 336;
 
@@ -59,16 +66,21 @@ export class MainMenuScene extends Phaser.Scene {
         lineSpacing: 5,
       }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1.5, offsetY: 1.5 });
 
-    // Patch picker.
-    const pick = addShadowText(this, titleX, 250, 'PICK YOUR PATCH', {
+    // Difficulty picker.
+    const pick = addShadowText(this, titleX, 250, 'Pick your difficulty', {
         fontFamily: FONT,
         fontSize: '16px',
         fontStyle: 'bold',
         color: Hex.teal,
       }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1, offsetY: 2 });
 
-    this.easyPill = makeTextPill(this, titleX - 92, 296, 160, 58, 'EASY', () => this.setMode('easy'));
-    this.hardPill = makeTextPill(this, titleX + 92, 296, 160, 58, 'HARD', () => this.setMode('hard'));
+    // Three equal pills: Easy / Medium / Hard. Same size + selected visuals; each
+    // hit area matches its visible pill (rectangle set inside makeTextPill).
+    const pillW = 132;
+    const pillGap = 140;
+    this.easyPill = makeTextPill(this, titleX - pillGap, 296, pillW, 56, 'EASY', () => this.setMode('easy'));
+    this.mediumPill = makeTextPill(this, titleX, 296, pillW, 56, 'MEDIUM', () => this.setMode('medium'));
+    this.hardPill = makeTextPill(this, titleX + pillGap, 296, pillW, 56, 'HARD', () => this.setMode('hard'));
     this.setMode(this.mode);
 
     // START button.
@@ -83,7 +95,7 @@ export class MainMenuScene extends Phaser.Scene {
       }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1.5, offsetY: 1.5 });
 
     // Hero dino, bobbing happily, with eyes that follow the cursor / last tap.
-    this.add.ellipse(770, 458, 160, 26, 0x5b7d3a, 0.18);
+    this.add.ellipse(770, 462, 118, 16, 0x5b7d3a, 0.08);
     const heroWrap = this.add.container(770, 318);
     const hero = this.add.image(0, 0, 'dinoIdle').setOrigin(0.5);
     hero.setDisplaySize(286 * (hero.width / hero.height), 286);
@@ -93,10 +105,6 @@ export class MainMenuScene extends Phaser.Scene {
     this.tweens.add({ targets: hero, y: -12, duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     this.input.on('pointermove', this.trackEyes, this);
     this.input.on('pointerdown', this.trackEyes, this);
-
-    // A little stegosaurus friend peeking from the corner.
-    const steg = this.add.image(96, 486, 'dinoSteg').setOrigin(0.5);
-    steg.setDisplaySize(150 * (steg.width / steg.height), 150);
 
     // FULL SCREEN pill, bottom-right.
     makeImageButton(this, LOGICAL_W - 105, LOGICAL_H - 28, 'btnFs', 'btnFsActive', () => this.goFullscreen(), 40);
@@ -108,11 +116,43 @@ export class MainMenuScene extends Phaser.Scene {
       this.popContainer(tagline.container, 140);
       this.popContainer(pick.container, 210);
       this.popContainer(this.easyPill.container, 260);
-      this.popContainer(this.hardPill.container, 300);
-      this.fadeIn(start, 360);
-      this.popContainer(legend.container, 430);
-      this.fadeIn(steg, 480);
+      this.popContainer(this.mediumPill.container, 300);
+      this.popContainer(this.hardPill.container, 340);
+      this.fadeIn(start, 400);
+      this.popContainer(legend.container, 460);
+      // Tasteful button-pop ticks: one for the difficulty pills, one for START.
+      this.time.delayedCall(260, () => playButtonShow(this));
+      this.time.delayedCall(400, () => playButtonShow(this));
     }
+  }
+
+  private addMenuFlowers(reduce: boolean): Phaser.GameObjects.Container {
+    const layer = this.add.container(0, 0);
+    const flowers: [number, number, number][] = [
+      [74, 502, Palette.pinkBright],
+      [124, 514, Palette.sun],
+      [198, 506, Palette.lilac],
+      [716, 510, Palette.orange],
+      [770, 502, Palette.pinkBright],
+      [832, 514, Palette.white],
+      [900, 506, Palette.sun],
+    ];
+    flowers.forEach(([x, y, color], i) => {
+      const g = this.add.graphics();
+      drawMenuFlower(g, color, i % 2 === 0 ? Palette.yellow : Palette.orange);
+      // Each flower blooms in place from scale 0 (origin is its own base point),
+      // so there is no sliding from the layer corner.
+      const target = i % 3 === 0 ? 0.9 : 1;
+      const f = this.add.container(x, y, [g]);
+      layer.add(f);
+      if (reduce) {
+        f.setScale(target);
+      } else {
+        f.setScale(0);
+        this.tweens.add({ targets: f, scale: target, duration: 420, delay: 480 + i * 70, ease: 'Back.out' });
+      }
+    });
+    return layer;
   }
 
   private trackEyes(pointer: Phaser.Input.Pointer): void {
@@ -167,6 +207,7 @@ export class MainMenuScene extends Phaser.Scene {
   private setMode(mode: Mode): void {
     this.mode = mode;
     this.easyPill.setSelected(mode === 'easy');
+    this.mediumPill.setSelected(mode === 'medium');
     this.hardPill.setSelected(mode === 'hard');
   }
 
@@ -174,6 +215,22 @@ export class MainMenuScene extends Phaser.Scene {
     const el = (document.getElementById('game') ?? this.game.canvas) as HTMLElement & {
       requestFullscreen?: () => Promise<void>;
     };
-    el.requestFullscreen?.().catch(() => {});
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    else el.requestFullscreen?.().catch(() => {});
   }
+}
+
+function drawMenuFlower(g: Phaser.GameObjects.Graphics, petal: number, center: number): void {
+  g.lineStyle(4, Palette.grassDark, 1);
+  g.lineBetween(0, 0, 0, -24);
+  g.fillStyle(Palette.leafGreen, 1);
+  g.fillEllipse(-7, -12, 12, 7);
+  g.fillEllipse(7, -17, 12, 7);
+  g.fillStyle(petal, 1);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    g.fillCircle(Math.cos(a) * 8, -30 + Math.sin(a) * 8, 6);
+  }
+  g.fillStyle(center, 1);
+  g.fillCircle(0, -30, 5);
 }

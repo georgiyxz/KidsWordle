@@ -14,9 +14,11 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  render: { antialias: true, powerPreference: 'low-power' },
+  // antialias + mipmap filtering keep downscaled images (dino, CTA buttons) clean;
+  // text sharpness comes from the higher RENDER_RESOLUTION in theme.ts.
+  render: { antialias: true, mipmapFilter: 'LINEAR_MIPMAP_LINEAR', roundPixels: false, powerPreference: 'low-power' },
   banner: false, // no console banner spam
-  audio: { noAudio: true }, // the game has no audio — skip the WebAudio context
+  audio: { disableWebAudio: false }, // WebAudio on; unlocks on first user gesture
   scene: [BootScene, MainMenuScene, GameScene],
 });
 

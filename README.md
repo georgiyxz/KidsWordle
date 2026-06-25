@@ -39,8 +39,8 @@ npm run preview  # preview the production build
   (`scripts/optimize-assets.mjs`). Re-run that script to regenerate
   `public/art/dinos/`.
 - **Buttons / cards:** Funbrain CTA assets in `public/ui/`.
-- **Word lists:** `public/data/easy_words.txt` and `hard_words.txt` (5-letter,
-  uppercase), derived from the repo's `data/` lists.
+- **Word lists:** bundled from `data/words-easy.txt`, `data/medium-words.txt`,
+  `data/words-hard.txt`, and `data/5letter_clean.txt` via Vite raw imports.
 
 ## Notes / scope
 

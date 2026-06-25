@@ -64,8 +64,10 @@ export const FONT = 'Poppins';
 export const LOGICAL_W = 960;
 export const LOGICAL_H = 540;
 
-// Supersampled text resolution for crisp glyphs. Retina screens get a little
-// more; standard screens stay at 2 to keep texture memory in check.
-export const RENDER_RESOLUTION = (typeof window !== 'undefined' && (window.devicePixelRatio || 1) >= 2) ? 3 : 2;
+// Supersampled text resolution for crisp glyphs. Bumped up (standard 3, retina 4)
+// so text and fake-shadow text stay sharp even when the FIT canvas is scaled up to
+// a big display or fullscreen. Display size is unchanged — only the glyph texture
+// is rendered at higher density.
+export const RENDER_RESOLUTION = (typeof window !== 'undefined' && (window.devicePixelRatio || 1) >= 2) ? 4 : 3;
 
-export type Mode = 'easy' | 'hard';
+export type Mode = 'easy' | 'medium' | 'hard';

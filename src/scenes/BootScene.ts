@@ -46,9 +46,26 @@ export class BootScene extends Phaser.Scene {
     this.load.image('cardWin', 'ui/CTA-YouWinCard.png');
     this.load.image('cardOver', 'ui/CTA-GameOverCard.png');
 
-    // Word lists (5-letter, uppercase, one per line).
-    this.load.text('easyWords', 'data/easy_words.txt');
-    this.load.text('hardWords', 'data/hard_words.txt');
+    // Secret word lists are bundled via ?raw imports in GameScene (Easy/Medium/
+    // Hard), and 5letter_clean is the guess-validation dictionary — no text loads
+    // needed here.
+
+    // Audio (compressed mono mp3 in public/audio): typing tick, popup pop,
+    // flower charge-up, and the looped menu lofi bed.
+    this.load.audio('sfxText', 'audio/Text.mp3');
+    this.load.audio('sfxPopup', 'audio/intro_popup.mp3');
+    this.load.audio('sfxCharge', 'audio/charge_up.mp3');
+    this.load.audio('musicLofi', 'audio/Lofi.mp3');
+    this.load.audio('sfxCastHook', 'audio/Cast_Hook_UI.mp3');
+    this.load.audio('sfxButtonShow', 'audio/Button_Show.mp3');
+    this.load.audio('sfxTada', 'audio/Tada.mp3');
+    this.load.audio('sfxLetterHit', 'audio/LetterHit.mp3');
+    this.load.audio('voice1', 'audio/voice1.mp3');
+    this.load.audio('voice2', 'audio/voice2.mp3');
+    this.load.audio('voice3', 'audio/voice3.mp3');
+    this.load.audio('birdschirping', 'audio/birdschirping.mp3');
+    this.load.audio('sfxCharacterSelected', 'audio/CharacterSelected.mp3');
+    this.load.audio('sfxFlowerDead', 'audio/flower_dead.mp3');
   }
 
   async create(): Promise<void> {
@@ -58,7 +75,7 @@ export class BootScene extends Phaser.Scene {
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
     if (fonts) {
       try {
-        await Promise.all([fonts.load(`700 48px "${FONT}"`), fonts.load(`300 20px "${FONT}"`)]);
+        await fonts.load(`700 48px "${FONT}"`);
         await fonts.ready;
       } catch {
         /* keep going with the fallback font */

@@ -12,11 +12,11 @@ export function drawGarden(scene: Phaser.Scene, withSun = true): void {
   g.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
   if (withSun) {
-    // Sun with a soft halo, tucked in the top-left.
+    // Sun with a soft halo, tucked into the top-right background.
     g.fillStyle(Palette.sun, 0.25);
-    g.fillCircle(112, 96, 86);
+    g.fillCircle(850, 78, 78);
     g.fillStyle(Palette.sun, 1);
-    g.fillCircle(112, 96, 60);
+    g.fillCircle(850, 78, 52);
   }
 
   // Rolling hills, then the flat grass band the garden sits on.
@@ -32,8 +32,11 @@ export function drawGarden(scene: Phaser.Scene, withSun = true): void {
 // keeps gently sending more across; auto-cleans its timer on scene shutdown.
 export function addClouds(scene: Phaser.Scene): Phaser.GameObjects.Container {
   const layer = scene.add.container(0, 0);
+  let stopped = false;
+  let event: Phaser.Time.TimerEvent | undefined;
 
   const spawn = (startX?: number): void => {
+    if (stopped) return;
     const w = Phaser.Math.Between(150, 230);
     const h = w * 0.5625;
     const y = Phaser.Math.Between(70, 150);
@@ -55,15 +58,20 @@ export function addClouds(scene: Phaser.Scene): Phaser.GameObjects.Container {
   };
 
   [260, 640, 980].forEach((x) => spawn(x));
-  let event: Phaser.Time.TimerEvent;
   const schedule = (): void => {
+    if (stopped) return;
     event = scene.time.delayedCall(Phaser.Math.Between(5200, 8600), () => {
+      if (stopped) return;
       spawn();
       schedule();
     });
   };
   schedule();
-  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => event?.remove(false));
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    stopped = true;
+    event?.remove(false);
+    scene.tweens.killTweensOf(layer.list);
+  });
   return layer;
 }
 
@@ -72,8 +80,11 @@ export function addClouds(scene: Phaser.Scene): Phaser.GameObjects.Container {
 export function addButterflies(scene: Phaser.Scene): void {
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
   const colors = [Palette.pink, Palette.sun, Palette.lilac, Palette.tomato];
+  let stopped = false;
+  let event: Phaser.Time.TimerEvent | undefined;
 
   const release = (): void => {
+    if (stopped) return;
     const fromLeft = Math.random() < 0.5;
     const y = Phaser.Math.Between(150, 320);
     const startX = fromLeft ? -30 : LOGICAL_W + 30;
@@ -83,25 +94,34 @@ export function addButterflies(scene: Phaser.Scene): void {
     const bug = scene.add.container(startX, y, [g]).setDepth(6).setScale(0.9);
     if (!fromLeft) bug.setScale(-0.9, 0.9);
 
-    scene.tweens.add({ targets: g, scaleX: 0.5, duration: 140, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
-    scene.tweens.add({ targets: bug, y: y - Phaser.Math.Between(20, 44), duration: Phaser.Math.Between(700, 1100), yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const flap = scene.tweens.add({ targets: g, scaleX: 0.5, duration: 140, yoyo: true, repeat: -1, ease: 'Sine.inOut' });
+    const bob = scene.tweens.add({ targets: bug, y: y - Phaser.Math.Between(20, 44), duration: Phaser.Math.Between(700, 1100), yoyo: true, repeat: -1, ease: 'Sine.inOut' });
     scene.tweens.add({
       targets: bug,
       x: endX,
       duration: Phaser.Math.Between(7000, 9500),
       ease: 'Sine.inOut',
-      onComplete: () => bug.destroy(),
+      onComplete: () => {
+        flap.remove();
+        bob.remove();
+        bug.destroy();
+      },
     });
   };
 
   const schedule = (delay: number): void => {
-    const event = scene.time.delayedCall(delay, () => {
+    if (stopped) return;
+    event = scene.time.delayedCall(delay, () => {
+      if (stopped) return;
       release();
       schedule(Phaser.Math.Between(7000, 13000));
     });
-    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => event.remove(false));
   };
   schedule(Phaser.Math.Between(1500, 3500));
+  scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    stopped = true;
+    event?.remove(false);
+  });
 }
 
 function drawButterfly(g: Phaser.GameObjects.Graphics, color: number): void {

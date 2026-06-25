@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Palette, FONT } from '../theme';
 import { addShadowText, ShadowedText } from './ShadowText';
+import { playButtonPress } from '../audio';
 
 // Funbrain image CTA (the CTA-*-Default / CTA-*-Active asset pairs).
 // Shows the default art at rest, swaps to the active art on hover/press, nudges
@@ -40,6 +41,7 @@ export function makeImageButton(
     if (!held) return;
     held = false;
     setH(height);
+    playButtonPress(scene);
     onPress();
   });
   return img;
@@ -63,6 +65,7 @@ export function makeTextPill(
   onPress: () => void,
 ): TextPill {
   const container = scene.add.container(x, y);
+  const hit = scene.add.zone(0, 0, w, h).setOrigin(0.5);
   const bg = scene.add.graphics();
   const txt: ShadowedText = addShadowText(
     scene,
@@ -77,7 +80,7 @@ export function makeTextPill(
     },
     { shadowColor: '#FFFFFF', shadowAlpha: 0.82, offsetX: 1, offsetY: 2 },
   );
-  container.add([bg, txt.container]);
+  container.add([hit, bg, txt.container]);
 
   let selected = false;
   let hover = false;
@@ -98,27 +101,27 @@ export function makeTextPill(
   };
   redraw();
 
-  container
-    .setSize(w, h)
-    .setInteractive(new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h), Phaser.Geom.Rectangle.Contains);
-  if (container.input) container.input.cursor = 'pointer';
+  hit.setInteractive({ useHandCursor: true });
+  if (hit.input) hit.input.cursor = 'pointer';
 
-  container.on('pointerover', () => {
+  hit.on('pointerover', () => {
     hover = true;
     redraw();
   });
-  container.on('pointerout', () => {
+  hit.on('pointerout', () => {
     hover = false;
     pressed = false;
     redraw();
   });
-  container.on('pointerdown', () => {
+  hit.on('pointerdown', () => {
     pressed = true;
     redraw();
   });
-  container.on('pointerup', () => {
+  hit.on('pointerup', () => {
+    if (!pressed) return;
     pressed = false;
     redraw();
+    playButtonPress(scene);
     onPress();
   });
 

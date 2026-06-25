@@ -7,28 +7,51 @@ import { addShadowText, ShadowedText } from '../ui/ShadowText';
 import { bindWordInput } from '../input/GameInput';
 import { scoreGuess, LetterResult } from '../game/scoreGuess';
 import { reportScore, getHighScore } from '../game/session';
+import {
+  playText,
+  playPopup,
+  playCharge,
+  stopCharge,
+  playButtonShow,
+  playTada,
+  playLetterHit,
+  playDinoVoice,
+  startBirdAmbience,
+  stopBirdAmbience,
+  playFlowerDead,
+  stopFlowerDead,
+} from '../audio';
 import validWordsRaw from '../../data/5letter_clean.txt?raw';
+import easyWordsRaw from '../../data/words-easy.txt?raw';
+import mediumWordsRaw from '../../data/medium-words.txt?raw';
+import hardWordsRaw from '../../data/words-hard.txt?raw';
 
 const ROWS = 6;
 const COLS = 5;
-const CELL = 38;
-const STEP_X = 44;
-const STEP_Y = 43;
-const BOARD_CX = 176;
-const BOARD_CY = 205;
-const HINTS_PER_RUN = 5;
-const HELP_X = 480; // top-middle Dino Help cluster
-const HELP_Y = 42;
-const KEYBOARD_CX = 420;
+// Board tiles ~20% larger than before (was 43/50/49) — the board is the focus.
+const CELL = 52;
+const STEP_X = 60;
+const STEP_Y = 59;
+// ---- Layout (960 x 540). Tweak these to move whole UI groups around. ----
+// Board is the centered focus; keyboard sits directly below it. Dino + chat +
+// Dino Hint form a left-side column. Tries stay top-left, score top-right.
+const BOARD_CX = 502;
+const BOARD_CY = 210;
+const KEYBOARD_CX = 480;
 const KEYBOARD_CY = 470;
+const DINO_X = 176; // dino + chat + hint column, on the left
+const DINO_Y = 286;
+const CHAT_X = 176;
+const CHAT_Y = 120;
+const HELP_X = 170; // Dino Hints cluster in the old top-left Tries area (above chat)
+const HELP_Y = 36;
+const HINTS_PER_RUN = 5;
 // On-screen keyboard sizing (~20% smaller than the original 62/96/38/8/44 set).
 const KEY_W = 50;
 const KEY_WIDE = 76;
 const KEY_H = 30;
 const KEY_GAP = 6;
 const KEY_ROW_DY = 35;
-const CHAT_X = 656;
-const CHAT_Y = 160;
 
 type Score = LetterResult;
 type TileState = 'empty' | 'active' | 'typing' | Score;
@@ -83,10 +106,26 @@ const FALLBACK_EASY = [
   'APPLE', 'TIGER', 'ROBOT', 'CLOUD', 'PIZZA',
   'MUSIC', 'OCEAN', 'LEMON', 'BUNNY', 'MAGIC',
 ];
+const FALLBACK_MEDIUM = [
+  'ABOUT', 'ABOVE', 'AFTER', 'BEACH', 'CHAIR',
+  'DREAM', 'EAGLE', 'FLAME', 'GRAPE', 'HONEY',
+];
 const FALLBACK_HARD = [
   'PLANT', 'CRANE', 'SNAIL', 'BRAVE', 'SHARK',
   'STONE', 'WHALE', 'FRUIT', 'BREAD', 'DANCE',
 ];
+
+// Per-difficulty secret pools, parsed once from the local word lists.
+// Easy -> words-easy, Medium -> medium-words, Hard -> words-hard.
+function parseWordList(raw: string): string[] {
+  return raw
+    .split(/\s+/)
+    .map((w) => w.trim().toUpperCase())
+    .filter((w) => /^[A-Z]{5}$/.test(w));
+}
+const EASY_WORDS = parseWordList(easyWordsRaw);
+const MEDIUM_WORDS = parseWordList(mediumWordsRaw);
+const HARD_WORDS = parseWordList(hardWordsRaw);
 
 const BIG_CHEERS = ['NICE SPROUT!!', 'AWESOME GUESS!!', 'SO CLOSE!!', 'KEEP GOING, SUPER SPELLER!!'];
 const SMALL_CHEERS = ['Nice sprout!', 'Your word garden is growing!', 'Getting warmer!'];
@@ -103,15 +142,34 @@ const VALID_GUESSES = new Set(
     .filter((w) => /^[A-Z]{5}$/.test(w)),
 );
 
+// Right hill from Garden.ts: circle(cx,cy,r). The flower's stem base is its
+// container origin, so planting at hillSurfaceY(x) puts the base exactly on the
+// green — never floating. Used for every flower so offsets/wraps stay planted.
+const RIGHT_HILL = { cx: 860, cy: 470, r: 180 };
+function hillSurfaceY(x: number): number {
+  const { cx, cy, r } = RIGHT_HILL;
+  const dx = Phaser.Math.Clamp(x - cx, -(r - 4), r - 4);
+  return Math.round(cy - Math.sqrt(r * r - dx * dx));
+}
+
+// Flowers plant only on the RIGHT hill, spread down its inner slope so they sit
+// lower (clearly planted, not floating). x is what matters — the base y is derived
+// from hillSurfaceY(x) at spawn. Every spot stays above the keyboard (top ~420)
+// and well left of the Done / Full Screen cluster (x>836), clear of the board.
+const FLOWER_PLANT_OFFSET_Y = 8;
+const FLOWER_MIN_X = 700;
+const FLOWER_MAX_X = 830;
+const FLOWER_MIN_SPACING_X = 34;
+const FLOWER_SPAWN_ATTEMPTS = 14;
 const FLOWER_SPOTS: FlowerSpot[] = [
-  { x: 470, y: 392 },
-  { x: 548, y: 382 },
-  { x: 626, y: 388 },
-  { x: 704, y: 382 },
-  { x: 782, y: 392 },
-  { x: 850, y: 386 },
-  { x: 510, y: 410 },
-  { x: 668, y: 406 },
+  { x: 700, y: 397 },
+  { x: 734, y: 349 },
+  { x: 768, y: 323 },
+  { x: 802, y: 308 },
+  { x: 830, y: 300 },
+  { x: 718, y: 368 },
+  { x: 752, y: 333 },
+  { x: 786, y: 313 },
 ];
 
 const FLOWER_TYPES: FlowerType[] = [
@@ -143,6 +201,10 @@ const DINO_POSE_LAYOUTS: Record<string, DinoPoseLayout> = {
 
 export class GameScene extends Phaser.Scene {
   private mode: Mode = 'easy';
+  // The difficulty selected on the menu, plus the score-gated auto-switches still
+  // pending for this run (each fires once, in order).
+  private startMode: Mode = 'easy';
+  private pendingTransitions: { score: number; mode: Mode }[] = [];
 
   // run-level state (persists across words until a fresh run)
   private score = 0;
@@ -170,10 +232,10 @@ export class GameScene extends Phaser.Scene {
 
   // layers / refs
   private boardLayer!: Phaser.GameObjects.Container;
+  private bottomPanelLayer!: Phaser.GameObjects.Container;
   private kbLayer!: Phaser.GameObjects.Container;
   private dinoLayer!: Phaser.GameObjects.Container;
   private chatLayer!: Phaser.GameObjects.Container;
-  private legendLayer!: Phaser.GameObjects.Container;
   private flowerLayer!: Phaser.GameObjects.Container;
   private cells: Cell[][] = [];
   private keyObjs: Record<string, KeyObj> = {};
@@ -187,8 +249,8 @@ export class GameScene extends Phaser.Scene {
   private helpLayer!: Phaser.GameObjects.Container;
   private helpEggs!: Phaser.GameObjects.Graphics;
   private helpHit!: Phaser.GameObjects.Zone;
+  private hintLabel!: ShadowedText;
   private scoreLayer!: Phaser.GameObjects.Container;
-  private legendItems: Partial<Record<Score, Phaser.GameObjects.Container>> = {};
   private emotionTimer?: Phaser.Time.TimerEvent;
   private eyePupils!: Phaser.GameObjects.Graphics;
   private eyeTarget = new Phaser.Math.Vector2(LOGICAL_W / 2, LOGICAL_H / 2);
@@ -204,6 +266,7 @@ export class GameScene extends Phaser.Scene {
 
   init(data: { mode?: Mode }): void {
     this.mode = data.mode ?? 'easy';
+    this.resetDifficultyProgression();
     // A fresh start (menu or Try Again) resets the whole run.
     this.score = 0;
     this.hintsLeft = HINTS_PER_RUN;
@@ -214,13 +277,14 @@ export class GameScene extends Phaser.Scene {
     this.cells = [];
     this.keyObjs = {};
     this.letterKeys = {};
-    this.legendItems = {};
   }
 
   create(): void {
     this.reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.ensureSpark();
     this.cameras.main.setBounds(0, 0, LOGICAL_W, LOGICAL_H);
+    startBirdAmbience(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { stopBirdAmbience(); stopFlowerDead(); stopCharge(); });
 
     drawGarden(this, false);
     addClouds(this);
@@ -233,10 +297,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.buildScoreUi();
+    this.buildBottomPanel();
     this.buildHelpUi();
     this.buildBoard();
     this.buildDinoAndChat();
-    this.buildLegend();
     this.buildKeyboard();
 
     this.input.on('pointermove', this.trackDinoEyes, this);
@@ -249,7 +313,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.startWord(true);
-    this.playIntro();
+    this.playIntro(() => this.showRulesPopup());
   }
 
   update(_time: number, delta: number): void {
@@ -264,26 +328,113 @@ export class GameScene extends Phaser.Scene {
   // Sequential intro: each group pops in only after the previous group finishes.
   // 1) HUD  2) board  3) dino + chat  4) keyboard + corner buttons. Input stays
   // blocked (busy) until the keyboard is ready.
-  private playIntro(): void {
-    if (this.reduceMotion) return;
+  private playIntro(onComplete?: () => void): void {
+    if (this.reduceMotion) {
+      onComplete?.();
+      return;
+    }
     this.busy = true;
-    [this.boardLayer, this.dinoLayer, this.chatLayer, this.legendLayer, this.kbLayer].forEach((c) => c.setAlpha(0));
+    [this.boardLayer, this.dinoLayer, this.helpLayer, this.chatLayer, this.bottomPanelLayer, this.kbLayer].forEach((c) => c.setAlpha(0));
     this.hud.hideCorners();
 
+    // Order: 1) tries/score HUD  2) board  3) dino  4) Dino Hint + eggs
+    // 5) chat bubble  6) keyboard + corner buttons. Same pop-in style throughout.
     const stages: { run: () => void; dur: number }[] = [
-      { run: () => { this.hud.introHud(); this.popIn(this.scoreLayer, 0.6, 0); this.popIn(this.helpLayer, 0.6, 90); }, dur: 560 },
-      { run: () => this.popIn(this.boardLayer, 0.6, 0), dur: 340 },
-      { run: () => { this.popIn(this.dinoLayer, 0.7, 0); this.popIn(this.chatLayer, 0.6, 90); }, dur: 380 },
-      { run: () => { this.popIn(this.legendLayer, 0.7, 0); this.animateLegendItems(80); this.popIn(this.kbLayer, 0.8, 60); this.hud.introCorners(); }, dur: 380 },
+      { run: () => { playButtonShow(this); this.hud.introHud(); this.popIn(this.scoreLayer, 0.6, 0); }, dur: 540 },
+      { run: () => { this.popIn(this.boardLayer, 0.6, 0); }, dur: 340 },
+      { run: () => { this.popIn(this.dinoLayer, 0.7, 0); }, dur: 340 },
+      { run: () => { playButtonShow(this); this.popIn(this.helpLayer, 0.6, 0); }, dur: 320 },
+      { run: () => { this.popIn(this.chatLayer, 0.6, 0); }, dur: 320 },
+      { run: () => { playButtonShow(this); this.popIn(this.bottomPanelLayer, 0.8, 0); this.popIn(this.kbLayer, 0.8, 60); this.hud.introCorners(); }, dur: 380 },
     ];
     let i = 0;
     const next = () => {
-      if (i >= stages.length) { this.busy = false; return; }
+      if (i >= stages.length) { this.busy = false; onComplete?.(); return; }
       const stage = stages[i++];
       stage.run();
       this.time.delayedCall(stage.dur, next);
     };
     next();
+  }
+
+  private showRulesPopup(): void {
+    this.busy = true;
+    playPopup(this);
+    const scrim = this.add
+      .rectangle(0, 0, LOGICAL_W, LOGICAL_H, 0x000000, 0.34)
+      .setOrigin(0)
+      .setInteractive()
+      .setDepth(70);
+    const layer = this.add.container(LOGICAL_W / 2, LOGICAL_H / 2).setDepth(71);
+    const panel = this.add.graphics();
+    panel.fillStyle(0x000000, 0.16);
+    panel.fillRoundedRect(-242, -173, 496, 366, 28);
+    panel.fillStyle(Palette.paper, 1);
+    panel.lineStyle(6, Palette.ctaPrimary, 1);
+    panel.fillRoundedRect(-250, -183, 500, 366, 28);
+    panel.strokeRoundedRect(-250, -183, 500, 366, 28);
+    layer.add(panel);
+
+    const title = addShadowText(this, 0, -122, 'HOW TO PLAY', {
+      fontFamily: FONT,
+      fontSize: '30px',
+      fontStyle: 'bold',
+      color: Hex.orange,
+    }, { shadowColor: '#000000', shadowAlpha: 0.55, offsetX: 2, offsetY: 2 });
+    const intro = addShadowText(this, 0, -78, 'Guess the 5-letter word!', {
+      fontFamily: FONT,
+      fontSize: '20px',
+      fontStyle: 'bold',
+      color: Hex.ink,
+    }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1.5, offsetY: 1.5 });
+    layer.add([title.container, intro.container]);
+
+    const legend: [number, Score, string][] = [
+      [-28, 'correct', 'Pink = right spot'],
+      [12, 'present', 'Yellow = wrong spot'],
+      [52, 'absent', 'Brown = not here'],
+    ];
+    legend.forEach(([y, state, label]) => {
+      const g = this.add.graphics();
+      paintTile(g, -122, y, 28, state);
+      const text = addShadowText(this, -98, y, label, {
+        fontFamily: FONT,
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: Hex.ink,
+      }, { origin: [0, 0.5], shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1, offsetY: 2 });
+      layer.add([g, text.container]);
+    });
+
+    const outro = addShadowText(this, 0, 96, 'Solve words to score points!', {
+      fontFamily: FONT,
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: Hex.teal,
+    }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1.5, offsetY: 1.5 });
+    const btn = makeImageButton(this, 0, 146, 'btnContinue', 'btnContinueActive', () => this.closeRulesPopup(layer, scrim, btn), 44);
+    layer.add([outro.container, btn]);
+
+    if (this.reduceMotion) return;
+    this.popIn(layer, 0.55, 0, 320);
+    scrim.setAlpha(0);
+    this.tweens.add({ targets: scrim, alpha: 1, duration: 180 });
+  }
+
+  private closeRulesPopup(
+    layer: Phaser.GameObjects.Container,
+    scrim: Phaser.GameObjects.Rectangle,
+    btn: Phaser.GameObjects.Image,
+  ): void {
+    btn.disableInteractive();
+    const finish = () => {
+      layer.destroy();
+      scrim.destroy();
+      this.busy = false;
+    };
+    if (this.reduceMotion) { finish(); return; }
+    this.tweens.add({ targets: layer, y: layer.y + 18, scale: 0, alpha: 0, duration: 220, ease: 'Back.in', onComplete: finish });
+    this.tweens.add({ targets: scrim, alpha: 0, duration: 200 });
   }
 
   // One-time tiny white dot used by the particle bursts.
@@ -303,13 +454,13 @@ export class GameScene extends Phaser.Scene {
     this.scoreLayer = this.add.container(LOGICAL_W - 18, 16);
     this.scoreText = addShadowText(this, 0, 0, 'SCORE: 0', {
         fontFamily: FONT,
-        fontSize: '24px',
+        fontSize: '26px',
         fontStyle: 'bold',
         color: Hex.orange,
       }, { origin: [1, 0], shadowColor: '#000000', shadowAlpha: 0.78, offsetX: 2, offsetY: 2 });
-    this.bestText = addShadowText(this, 0, 30, `HIGH: ${getHighScore()}`, {
+    this.bestText = addShadowText(this, 0, 33, `HIGH: ${getHighScore()}`, {
         fontFamily: FONT,
-        fontSize: '16px',
+        fontSize: '18px',
         fontStyle: 'bold',
         color: Hex.gold,
       }, { origin: [1, 0], shadowColor: '#000000', shadowAlpha: 0.7, offsetX: 1.5, offsetY: 1.5 });
@@ -388,6 +539,12 @@ export class GameScene extends Phaser.Scene {
     this.drawHelpMeter();
   }
 
+  private buildBottomPanel(): void {
+    // The brown backing panel behind the keyboard/Dino Hint was removed; the layer
+    // is kept (empty) so the intro and loss-transition sequences still reference it.
+    this.bottomPanelLayer = this.add.container(0, 0);
+  }
+
   private drawHelpMeter(): void {
     const g = this.helpEggs;
     g.clear();
@@ -396,6 +553,9 @@ export class GameScene extends Phaser.Scene {
       const full = i < this.hintsLeft;
       drawEgg(g, x, 0, full);
     }
+    // Plural when 2+ hints remain, singular at 1 or 0 (the 0 state keeps its
+    // existing "no hints" behavior on press).
+    this.hintLabel?.setText(this.hintsLeft >= 2 ? 'DINO HINTS' : 'DINO HINT');
   }
 
   private buildHintButton(x: number, y: number): Phaser.GameObjects.Container {
@@ -404,12 +564,13 @@ export class GameScene extends Phaser.Scene {
     const h = 42;
     const hit = this.add.zone(0, 0, w, h).setOrigin(0.5);
     const g = this.add.graphics();
-    const txt = addShadowText(this, 0, 0, 'DINO HINT', {
+    const txt = addShadowText(this, 0, 0, 'DINO HINTS', {
       fontFamily: FONT,
       fontSize: '17px',
       fontStyle: 'bold',
       color: Hex.white,
     }, { shadowColor: '#000000', shadowAlpha: 0.76, offsetX: 2, offsetY: 2 });
+    this.hintLabel = txt; // text origin is centered, so the label stays centered in the fixed-width pill
     container.add([hit, g, txt.container]);
     let hover = false;
     let pressed = false;
@@ -453,7 +614,7 @@ export class GameScene extends Phaser.Scene {
         const icon = this.add.graphics();
         const txt = addShadowText(this, 0, 0, '', {
           fontFamily: FONT,
-          fontSize: '23px',
+          fontSize: '27px',
           fontStyle: 'bold',
           color: Hex.ink,
         }, { shadowColor: Hex.cream, shadowAlpha: 0.85, offsetX: 1, offsetY: 2 });
@@ -467,30 +628,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildDinoAndChat(): void {
-    this.dinoLayer = this.add.container(398, 236);
-    const dinoShadow = this.add.ellipse(0, 80, 116, 20, 0x33521f, 0.2);
+    this.dinoLayer = this.add.container(DINO_X, DINO_Y);
     this.dino = this.add.image(0, 0, 'dinoIdle').setOrigin(0.5);
     this.eyePupils = this.add.graphics();
-    this.dinoLayer.add([dinoShadow, this.dino, this.eyePupils]);
+    this.dinoLayer.add([this.dino, this.eyePupils]);
     this.setDino('dinoIdle');
-    this.tweens.add({
-      targets: this.dino,
-      y: -8,
-      duration: 1500,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut',
-    });
+    // No idle vertical bob — the dino stays still unless a gameplay animation moves it.
 
     this.chatLayer = this.add.container(CHAT_X, CHAT_Y);
     this.bubble = this.add.graphics();
     this.chatText = addShadowText(this, 4, 0, '', {
         fontFamily: FONT,
-        fontSize: '18px',
+        fontSize: '15px',
         fontStyle: 'bold',
         color: Hex.ink,
         align: 'center',
-        wordWrap: { width: 268 },
+        wordWrap: { width: 214 },
       }, { shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1, offsetY: 2 });
     this.chatLayer.add([this.bubble, this.chatText.container]);
     this.redrawBubble(false);
@@ -500,56 +653,14 @@ export class GameScene extends Phaser.Scene {
     const g = this.bubble;
     g.clear();
     const fill = Palette.white;
-    // tail toward the dino (left), drawn first so the body covers its base
+    // tail points down toward the dino below; drawn first so the body covers its base
     g.fillStyle(Palette.ink, 1);
-    g.fillTriangle(-153, 5, -153, 43, -188, 24);
+    g.fillTriangle(-23, 32, 12, 32, -7, 76);
     g.fillStyle(fill, 1);
-    g.fillTriangle(-150, 8, -150, 40, -182, 24);
-    g.fillRoundedRect(-150, -58, 300, 116, 18);
+    g.fillTriangle(-20, 34, 8, 34, -7, 70);
+    g.fillRoundedRect(-122, -47, 243, 94, 14);
     g.lineStyle(emph ? 6 : 5, Palette.ink, 1);
-    g.strokeRoundedRect(-150, -58, 300, 116, 18);
-  }
-
-  private buildLegend(): void {
-    this.legendLayer = this.add.container(854, 106);
-    const items: [number, Score, string][] = [
-      [0, 'correct', 'Right spot'],
-      [36, 'present', 'Wrong spot'],
-      [72, 'absent', 'Not here'],
-    ];
-    items.forEach(([y, state, label]) => {
-      const item = this.add.container(0, y);
-      const g = this.add.graphics();
-      paintTile(g, 0, 0, 23, state);
-      const t = addShadowText(this, 18, y, label, {
-        fontFamily: FONT,
-        fontSize: '13px',
-        fontStyle: 'bold',
-        color: Hex.ink,
-      }, { origin: [0, 0.5], shadowColor: Hex.cream, shadowAlpha: 0.86, offsetX: 1, offsetY: 2 });
-      t.setY(0);
-      item.add([g, t.container]);
-      this.legendLayer.add(item);
-      this.legendItems[state] = item;
-    });
-  }
-
-  private animateLegendItems(delay = 0): void {
-    if (this.reduceMotion) return;
-    (['correct', 'present', 'absent'] as Score[]).forEach((state, i) => {
-      const item = this.legendItems[state];
-      if (!item) return;
-      const x = item.x;
-      item.setX(x + 14).setAlpha(0);
-      this.tweens.add({
-        targets: item,
-        x,
-        alpha: 1,
-        duration: 260,
-        delay: delay + i * 70,
-        ease: 'Back.out',
-      });
-    });
+    g.strokeRoundedRect(-122, -47, 243, 94, 14);
   }
 
   private buildKeyboard(): void {
@@ -689,7 +800,7 @@ export class GameScene extends Phaser.Scene {
 
   // ---- per-word lifecycle -------------------------------------------------
 
-  private startWord(first: boolean): void {
+  private startWord(first: boolean, staged = false): void {
     this.secret = this.pickSecret();
     this.prevSecret = this.secret;
     this.row = 0;
@@ -711,12 +822,13 @@ export class GameScene extends Phaser.Scene {
       }
     }
     Object.values(this.keyObjs).forEach((k) => k.reset());
-    if (!first) this.hud.resetBalls();
+    // When staged, the intro animation reveals everything, so skip the per-word pops.
+    if (!first && !staged) this.hud.resetBalls();
     this.emotionTimer?.remove(false);
     this.emotionTimer = undefined;
     this.setDino('dinoIdle');
 
-    if (!first) this.popIn(this.boardLayer, 0.9, 0, 240);
+    if (!first && !staged) this.popIn(this.boardLayer, 0.9, 0, 240);
     this.renderCurrentRow();
     this.say(first ? 'Plant a 5-letter word and press ENTER!' : 'Fresh word! Keep your garden growing!');
   }
@@ -724,31 +836,29 @@ export class GameScene extends Phaser.Scene {
   private resetGameplayUiForIntro(): void {
     this.tweens.killTweensOf([
       this.boardLayer,
+      this.bottomPanelLayer,
       this.kbLayer,
       this.dinoLayer,
       this.chatLayer,
-      this.legendLayer,
       this.scoreLayer,
       this.helpLayer,
     ]);
     this.boardLayer.setPosition(BOARD_CX, BOARD_CY).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.bottomPanelLayer.setPosition(0, 0).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
     this.kbLayer.setPosition(KEYBOARD_CX, KEYBOARD_CY).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
-    this.dinoLayer.setPosition(398, 236).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
+    this.dinoLayer.setPosition(DINO_X, DINO_Y).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
     this.chatLayer.setPosition(CHAT_X, CHAT_Y).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
-    this.legendLayer.setPosition(854, 106).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
     this.scoreLayer.setPosition(LOGICAL_W - 18, 16).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
     this.helpLayer.setPosition(HELP_X, HELP_Y).setScale(1).setAngle(0).setAlpha(1).setVisible(true);
     this.helpHit.setVisible(true).setInteractive({ useHandCursor: true });
   }
 
   private pickSecret(): string {
-    const key = this.mode === 'easy' ? 'easyWords' : 'hardWords';
-    const raw = (this.cache.text.get(key) as string | undefined) ?? '';
-    const words = raw
-      .split(/\s+/)
-      .map((w) => w.trim().toUpperCase())
-      .filter((w) => /^[A-Z]{5}$/.test(w) && VALID_GUESSES.has(w));
-    const list = words.length ? words : this.mode === 'easy' ? FALLBACK_EASY : FALLBACK_HARD;
+    const pool = this.mode === 'easy' ? EASY_WORDS : this.mode === 'medium' ? MEDIUM_WORDS : HARD_WORDS;
+    // Every secret must also be a valid guess (it lives in 5letter_clean).
+    const words = pool.filter((w) => VALID_GUESSES.has(w));
+    const fallback = this.mode === 'easy' ? FALLBACK_EASY : this.mode === 'medium' ? FALLBACK_MEDIUM : FALLBACK_HARD;
+    const list = words.length ? words : fallback;
     let pick = Phaser.Math.RND.pick(list);
     if (list.length > 1) {
       let guard = 0;
@@ -757,11 +867,40 @@ export class GameScene extends Phaser.Scene {
     return pick;
   }
 
+  // ---- auto difficulty progression ----------------------------------------
+
+  // Score gates depend on the difficulty the run STARTED on:
+  //   easy   -> Medium at 300, Hard at 600
+  //   medium -> Hard at 300
+  //   hard   -> none
+  private resetDifficultyProgression(): void {
+    this.startMode = this.mode;
+    this.pendingTransitions =
+      this.startMode === 'easy'
+        ? [{ score: 300, mode: 'medium' }, { score: 600, mode: 'hard' }]
+        : this.startMode === 'medium'
+          ? [{ score: 300, mode: 'hard' }]
+          : [];
+  }
+
+  // If the new score crosses the next pending gate, consume it (once), switch the
+  // mode for upcoming words, and return the new mode so a popup can be shown.
+  private takeDifficultyTransition(): Mode | null {
+    const next = this.pendingTransitions[0];
+    if (next && this.score >= next.score) {
+      this.pendingTransitions.shift();
+      this.mode = next.mode;
+      return next.mode;
+    }
+    return null;
+  }
+
   // ---- input --------------------------------------------------------------
 
   private onLetter(ch: string): void {
     if (this.busy || this.over || this.current.length >= COLS) return;
     this.current += ch;
+    playText(this);
     this.renderCurrentRow();
     const col = this.current.length - 1;
     this.glanceAtCurrentTile(col, 620);
@@ -839,7 +978,6 @@ export class GameScene extends Phaser.Scene {
 
     // juice for committing a full guess
     this.shake(140, 0.004);
-    this.dustPuff();
 
     const stepMs = this.reduceMotion ? 0 : 150;
     for (let c = 0; c < COLS; c++) {
@@ -847,6 +985,7 @@ export class GameScene extends Phaser.Scene {
         const cell = this.cells[this.row][c];
         this.paintCell(cell, score[c], guess[c]);
         this.animateReveal(cell, score[c]);
+        if (!this.reduceMotion) playLetterHit(this); // one tick per tile, left-to-right
         if (score[c] === 'correct') this.solvedPos[c] = true;
         this.bumpLetterState(guess[c], score[c]);
       });
@@ -897,34 +1036,7 @@ export class GameScene extends Phaser.Scene {
       const k = this.letterKeys[letter];
       k?.setState(score);
       if (score === 'absent') k?.fall();
-      this.pulseLegendState(score);
     }
-  }
-
-  private pulseLegendState(state: Score): void {
-    if (this.reduceMotion) return;
-    const item = this.legendItems[state];
-    if (!item) return;
-    this.tweens.killTweensOf(item);
-    item.setScale(1);
-    this.tweens.add({
-      targets: item,
-      scale: { from: 1.12, to: 1 },
-      duration: 210,
-      ease: 'Back.out',
-    });
-    const colors: Record<Score, number[]> = {
-      correct: [Palette.pinkBright, Palette.white],
-      present: [Palette.yellow, Palette.orange],
-      absent: [Palette.mud, Palette.soilLight],
-    };
-    this.burst(this.legendLayer.x + item.x, this.legendLayer.y + item.y, {
-      tints: colors[state],
-      count: 7,
-      speed: [18, 56],
-      lifespan: 340,
-      depth: 43,
-    });
   }
 
   // ---- feedback / juice ---------------------------------------------------
@@ -1047,16 +1159,6 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(opts.lifespan + 80, () => emitter.destroy());
   }
 
-  private dustPuff(): void {
-    this.burst(this.boardLayer.x, this.boardLayer.y - 130, {
-      tints: [0xcdbb99, 0xb89b73, 0x9a7b53],
-      count: 12,
-      speed: [40, 120],
-      lifespan: 520,
-      gravityY: 140,
-    });
-  }
-
   private loseBurst(): void {
     this.burst(this.boardLayer.x, this.boardLayer.y, {
       tints: [Palette.leafGreen, Palette.mud, Palette.soil],
@@ -1095,15 +1197,21 @@ export class GameScene extends Phaser.Scene {
   private say(text: string, emph = false): void {
     this.redrawBubble(emph);
     this.chatText.setText(text);
-    this.chatText.setFontSize(emph ? 21 : 18);
+    this.chatText.setFontSize(emph ? 17 : 15);
     this.chatText.setColor(Hex.ink);
     this.chatText.setShadowColor('#000000', emph ? 0.22 : 0.16);
-    if (this.reduceMotion) return;
+    if (this.reduceMotion) {
+      playDinoVoice(this);
+      return;
+    }
+    const fromScale = emph ? 1.14 : 1.06;
+    const duration = emph ? 260 : 180;
     this.tweens.add({
       targets: this.chatLayer,
-      scale: { from: emph ? 1.14 : 1.06, to: 1 },
-      duration: emph ? 260 : 180,
+      scale: { from: fromScale, to: 1 },
+      duration,
       ease: 'Back.out',
+      onComplete: () => playDinoVoice(this),
     });
   }
 
@@ -1299,7 +1407,9 @@ export class GameScene extends Phaser.Scene {
     this.focusCameraOnGarden(this.lastFlowerPos.x, this.lastFlowerPos.y, camMs);
     this.time.delayedCall(camMs + 120, () => {
       this.setScore(this.score + base + bonus);
-      this.showNextWordPopup(base, bonus);
+      const advancedTo = this.takeDifficultyTransition();
+      if (advancedTo) this.showDifficultyPopup(advancedTo);
+      else this.showNextWordPopup(base, bonus);
     });
   }
 
@@ -1353,12 +1463,35 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private chooseFlowerX(): number {
+    const existing = this.grownFlowers.map((flower) => flower.container.x);
+    for (let i = 0; i < FLOWER_SPAWN_ATTEMPTS; i++) {
+      const candidate = Phaser.Math.Between(FLOWER_MIN_X, FLOWER_MAX_X);
+      if (this.isFlowerXOpen(candidate, existing)) return candidate;
+    }
+
+    for (const spot of FLOWER_SPOTS) {
+      if (this.isFlowerXOpen(spot.x, existing)) return spot.x;
+    }
+
+    return FLOWER_SPOTS.reduce((best, spot) => (
+      this.nearestFlowerDistance(spot.x, existing) > this.nearestFlowerDistance(best.x, existing) ? spot : best
+    ), FLOWER_SPOTS[0]).x;
+  }
+
+  private isFlowerXOpen(x: number, existing: number[]): boolean {
+    return existing.every((grownX) => Math.abs(grownX - x) >= FLOWER_MIN_SPACING_X);
+  }
+
+  private nearestFlowerDistance(x: number, existing: number[]): number {
+    if (existing.length === 0) return Number.POSITIVE_INFINITY;
+    return Math.min(...existing.map((grownX) => Math.abs(grownX - x)));
+  }
+
   private growRewardFlower(): number {
-    const spot = FLOWER_SPOTS[this.flowersGrown % FLOWER_SPOTS.length];
     const type = FLOWER_TYPES[this.flowersGrown % FLOWER_TYPES.length];
-    const row = Math.floor(this.flowersGrown / FLOWER_SPOTS.length);
-    const x = spot.x + (row % 3 - 1) * 8;
-    const y = spot.y + row * 4;
+    const x = this.chooseFlowerX();
+    const y = hillSurfaceY(x) + FLOWER_PLANT_OFFSET_Y;
     this.lastFlowerPos = { x, y };
     this.flowersGrown += 1;
 
@@ -1369,6 +1502,7 @@ export class GameScene extends Phaser.Scene {
     this.grownFlowers.push({ container: flower, graphics: g, type });
 
     if (this.reduceMotion) return 220;
+    playCharge(this); // whirr that rides the growth animation
     flower.setScale(0.02).setAlpha(0).setY(y + 42);
     this.tweens.add({
       targets: flower,
@@ -1384,7 +1518,7 @@ export class GameScene extends Phaser.Scene {
           scale: 1.04,
           duration: 280,
           ease: 'Sine.out',
-          onComplete: () => this.settleFlower(flower),
+          onComplete: () => { stopCharge(); this.settleFlower(flower); },
         });
       },
     });
@@ -1443,6 +1577,7 @@ export class GameScene extends Phaser.Scene {
 
   private wiltFlowers(): number {
     if (this.grownFlowers.length === 0) return 450;
+    playFlowerDead(this); // sad sting; stopped when the death animation ends
     if (this.reduceMotion) {
       this.grownFlowers.forEach((flower) => {
         drawRewardFlower(flower.graphics, flower.type, 1);
@@ -1495,7 +1630,10 @@ export class GameScene extends Phaser.Scene {
       const focus = this.getFlowerFocusPoint();
       const wiltMs = this.wiltFlowers();
       this.focusCameraOnGarden(focus.x, focus.y, wiltMs);
-      this.time.delayedCall(wiltMs + 140, () => this.showGameOver());
+      this.time.delayedCall(wiltMs + 140, () => {
+        stopFlowerDead(); // never let the death sting bleed into the lose screen
+        this.showGameOver();
+      });
     });
   }
 
@@ -1516,14 +1654,14 @@ export class GameScene extends Phaser.Scene {
     this.disableContainerInput(this.helpLayer);
 
     if (this.reduceMotion) {
-      [this.kbLayer, this.boardLayer, this.legendLayer, this.scoreLayer, this.helpLayer, this.chatLayer].forEach((layer) => {
+      [this.kbLayer, this.bottomPanelLayer, this.boardLayer, this.scoreLayer, this.helpLayer, this.chatLayer, this.dinoLayer].forEach((layer) => {
         layer.setAlpha(0);
       });
       this.hud.hideForLoss();
       return 120;
     }
 
-    const layers = [this.kbLayer, this.boardLayer, this.legendLayer, this.scoreLayer, this.helpLayer, this.chatLayer];
+    const layers = [this.kbLayer, this.bottomPanelLayer, this.boardLayer, this.scoreLayer, this.helpLayer, this.chatLayer, this.dinoLayer];
     layers.forEach((layer, i) => this.fadeLayerOut(layer, i * 90));
     const hudMs = this.hud.hideForLoss(160);
     return Math.max(hudMs, (layers.length - 1) * 90 + 310);
@@ -1564,6 +1702,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showNextWordPopup(base: number, bonus: number): void {
+    playPopup(this);
+    playTada(this); // win fanfare layered over the popup pop
     const scrim = this.add
       .rectangle(0, 0, LOGICAL_W, LOGICAL_H, Palette.purple, 0.28)
       .setOrigin(0)
@@ -1595,21 +1735,81 @@ export class GameScene extends Phaser.Scene {
     line(bonus > 0 ? 8 : -4, `Score: ${this.score}`, 22, Hex.teal, false);
     line(46, 'Ready for the next word?', 17, Hex.ink, false);
 
-    const btn = makeImageButton(this, 0, 104, 'btnContinue', 'btnContinueActive', () => this.continueFromPopup(layer, scrim), 56);
+    const btn = makeImageButton(this, 0, 104, 'btnContinue', 'btnContinueActive', () => this.continueFromPopup(layer, scrim, btn), 56);
     layer.add(btn);
     this.popIn(layer, 0, 0);
     if (bonus > 0) this.time.delayedCall(180, () => this.streakSparkle(LOGICAL_W / 2, 250 - 26));
   }
 
-  private continueFromPopup(layer: Phaser.GameObjects.Container, scrim: Phaser.GameObjects.Rectangle): void {
+  // Shown when the run auto-advances difficulty (Easy->Medium->Hard). Same chassis
+  // and Continue flow as the next-word popup, so the run keeps its score, high
+  // score, flowers and remaining hints; only the next secret uses the new mode.
+  private showDifficultyPopup(mode: Mode): void {
+    playPopup(this);
+    const label = mode === 'hard' ? 'Hard' : 'Medium';
+    const scrim = this.add
+      .rectangle(0, 0, LOGICAL_W, LOGICAL_H, Palette.purple, 0.28)
+      .setOrigin(0)
+      .setInteractive()
+      .setDepth(59);
+    const layer = this.add.container(LOGICAL_W / 2, 250).setDepth(60);
+    const panel = this.add.graphics();
+    panel.fillStyle(0x000000, 0.16); // soft drop shadow for depth
+    panel.fillRoundedRect(-204, -132, 420, 280, 26);
+    panel.fillStyle(Palette.paper, 1);
+    panel.lineStyle(6, Palette.ctaPrimary, 1);
+    panel.fillRoundedRect(-210, -140, 420, 280, 26);
+    panel.strokeRoundedRect(-210, -140, 420, 280, 26);
+    layer.add(panel);
+
+    const line = (y: number, text: string, size: number, color: string, dark: boolean) =>
+      layer.add(
+        addShadowText(this, 0, y, text, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: 'bold', color, align: 'center' }, {
+          shadowColor: dark ? '#000000' : Hex.cream,
+          shadowAlpha: dark ? 0.5 : 0.86,
+          offsetX: dark ? 2 : 1.5,
+          offsetY: dark ? 2 : 1.5,
+        }).container,
+      );
+
+    line(-92, 'Congratulations!', 30, Hex.pink, true);
+    line(-30, "You're doing great, so now", 19, Hex.ink, false);
+    line(0, `you're on ${label} mode!`, 19, Hex.ink, false);
+
+    const btn = makeImageButton(this, 0, 96, 'btnContinue', 'btnContinueActive', () => this.continueFromPopup(layer, scrim, btn), 56);
+    layer.add(btn);
+    this.popIn(layer, 0, 0);
+  }
+
+  private continueFromPopup(
+    layer: Phaser.GameObjects.Container,
+    scrim: Phaser.GameObjects.Rectangle,
+    btn: Phaser.GameObjects.Image,
+  ): void {
+    btn.disableInteractive(); // no double-advance while the transition plays
+    this.busy = true;
     const finish = () => {
       layer.destroy();
       scrim.destroy();
-      this.startWord(false);
+      this.transitionToNextWord();
     };
     if (this.reduceMotion) { finish(); return; }
     this.tweens.add({ targets: layer, y: layer.y + 18, scale: 0, alpha: 0, duration: 220, ease: 'Back.in', onComplete: finish });
     this.tweens.add({ targets: scrim, alpha: 0, duration: 220 });
+  }
+
+  // After the win popup leaves, sweep the whole board/keyboard/dino off, swap in a
+  // fresh word, then bring everything back with the normal staged intro. Run-level
+  // values (score, high score, hints, grown flowers) are all preserved. Input stays
+  // blocked until the intro finishes.
+  private transitionToNextWord(): void {
+    const hideMs = this.hideGameplayUiForLoss();
+    this.time.delayedCall(hideMs, () => {
+      this.hud.resetForIntro();
+      this.resetGameplayUiForIntro();
+      this.startWord(false, true);
+      this.playIntro();
+    });
   }
 
   // ---- loss ---------------------------------------------------------------
@@ -1617,6 +1817,7 @@ export class GameScene extends Phaser.Scene {
   private showGameOver(): void {
     this.over = true;
     this.busy = true;
+    playPopup(this);
     const best = reportScore(this.score);
     this.shake(260, 0.006);
     this.loseBurst();
@@ -1725,6 +1926,9 @@ export class GameScene extends Phaser.Scene {
     cam.setZoom(1);
     cam.setScroll(0, 0);
 
+    // A fresh run restarts on the originally-selected difficulty with fresh gates.
+    this.mode = this.startMode;
+    this.resetDifficultyProgression();
     this.score = 0;
     this.hintsLeft = HINTS_PER_RUN;
     this.streak = 0;

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Word Garden</title>
     <style>
       /* Local Poppins only — no remote font calls. "bold" weight is the display face. */
@@ -17,17 +17,34 @@
       body {
         margin: 0;
         padding: 0;
+        width: 100%;
         height: 100%;
+        min-height: 100%;
         overflow: hidden;
+        position: fixed;
+        inset: 0;
+        overscroll-behavior: none;
         background: #2a1f66; /* Funbrain purple, avoids white flash before paint */
       }
       #game {
+        position: fixed;
+        left: 0;
+        top: 0;
         width: 100vw;
-        height: 100vh;
+        width: var(--app-width, 100vw);
+        height: 100vh; /* fallback for browsers without dynamic-viewport units */
+        height: 100dvh;
+        height: var(--app-height, 100dvh);
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
       #game canvas {
         touch-action: none; /* suppress iOS scroll/zoom on swipe */
         display: block;
+        max-width: 100%;
+        max-height: 100%;
       }
     </style>
   </head>
